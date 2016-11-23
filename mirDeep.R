@@ -30,8 +30,10 @@ ReadMrd <- function(file) {
   #parse records
   record.list <- lapply(record.list, function(x) {
     out.list <- list()
+    # split on tabs first for the header part
     record <- strsplit(x, "\\s+")
 
+    
     out.list$total <- as.integer(record[[1]][4])
     out.list$left <- as.integer(record[[2]][4])
     out.list$right <- as.integer(record[[3]][4])
@@ -64,12 +66,13 @@ ReadMrd <- function(file) {
   record.list
 }
 
-PlotMrd <- function(mrd, id) {
+PlotMrd <- function(mrd, id, absolute=F) {
   # Plots an mrd record
   #
   # Args:
   #   mrd: The mrd object
   #   id: The id of the record you are interested in
+  #   absolute: Plot as the absolute depth or fractional?
   # Returns:
   #   a ggplot object
   
@@ -78,8 +81,16 @@ PlotMrd <- function(mrd, id) {
                                      pri_seq=unlist(strsplit(pri_seq, "")),
                                      pri_struct=unlist(strsplit(pri_struct, "")), 
                                      depth=depth))
+  # if we are working in fractional depth, scale the depth
+  temp$depth <- with(temp, 
+                     if (absolute)
+                       depth 
+                     else 
+                       depth/max(depth)
+  )
   temp$loc <- 1:nrow(temp)
   
+  # There are some magic numbers to adjust the positioning of the graph so that we don't get the bases or folding overlapping with the graph.
   plot <- ggplot(temp, aes(loc, depth)) + geom_line() + 
     geom_point(aes(color=exp)) + 
     geom_text(aes(label=pri_seq, color=exp), y=1.07*max(temp$depth), size=3) +
@@ -88,4 +99,38 @@ PlotMrd <- function(mrd, id) {
     coord_cartesian(ylim=c(-0.025*max(temp$depth), 1.1*max(temp$depth))) +
     ggtitle(id)
   plot
+}
+
+CompareMRD <- function(mrd1, mrd2, id) {
+  # Compare two different mirDeep analyses
+  #
+  # Args:
+  #   mrd1: The mrd1 object
+  #   mrd2: The mrd2 object
+  #   id: The id of the record you are interested in
+  # Returns:
+  #   a ks test object
+  ecdf1 <- cumsum(mrd1[[id]]$depth)
+  ecdf1 <- ecdf1/max(ecdf1)
+  ecdf2 <- cumsum(mrd2[[id]]$depth)
+  ecdf2 <- ecdf2/max(ecdf2)
+  
+  ks.test(ecdf1,ecdf2)
+}
+
+CompareIDs <- function(mrd, id1, id2) {
+  # Compare two different mirDeep analyses
+  #
+  # Args:
+  #   mrd1: The mrd1 object
+  #   mrd2: The mrd2 object
+  #   id: The id of the record you are interested in
+  # Returns:
+  #   a ks test object
+  ecdf1 <- cumsum(mrd[[id1]]$depth)
+  ecdf1 <- ecdf1/max(ecdf1)
+  ecdf2 <- cumsum(mrd[[id2]]$depth)
+  ecdf2 <- ecdf2/max(ecdf2)
+  
+  ks.test(ecdf1,ecdf2)
 }
