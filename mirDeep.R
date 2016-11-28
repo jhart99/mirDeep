@@ -142,6 +142,33 @@ PlotMrd <- function(mrd, absolute=F) {
     coord_cartesian(ylim=c(-0.025*max(temp$depth), 1.1*max(temp$depth)))
   plot
 }
+PlotMrdCompare <- function(mrd1, mrd2, absolute=F) {
+  # Plots an mrd record
+  #
+  # Args:
+  #   mrd: The mrd object
+  #   id: The id of the record you are interested in
+  #   absolute: Plot as the absolute depth or fractional?
+  # Returns:
+  #   a ggplot object
+  
+  library(ggplot2)
+  temp <- with(mrd1, data.frame(pri_seq=unlist(strsplit(pri_seq, "")),
+                               pri_struct=unlist(strsplit(pri_struct, "")), 
+                               depth1=total.depth))
+  temp$depth2 <- mrd2$total.depth
+  # if we are working in fractional depth, scale the depth
+  if (!absolute) {
+    temp$depth1 <- temp$depth1/max(temp$depth1)
+    temp$depth2 <- temp$depth2/max(temp$depth2)
+  }
+  temp$loc <- 1:nrow(temp)
+  
+  # There are some magic numbers to adjust the positioning of the graph so that
+  # we don't get the bases or folding overlapping with the graph.
+  plot <- ggplot(temp, aes(loc, depth1)) + geom_line() + geom_line(aes(y=depth2,), color="red")
+  plot
+}
 
 PlotMrdMM <- function(mrd, absolute=F) {
   # Plots an mrd record

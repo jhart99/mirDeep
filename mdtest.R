@@ -21,6 +21,8 @@ toot <- loadMirBaseHTML("miRNA Search Results.html")
 PlotMrd(toot)
 # or you can just copy and paste the URL
 library(RCurl)
-toot <- loadMirBaseHTML("http://www.mirbase.org/cgi-bin/get_read.pl?acc=MI0000269")
+toot <- loadMirBaseHTML("http://www.mirbase.org/cgi-bin/get_read.pl?acc=MI0000065")
 PlotMrd(toot)
-
+PlotMrd(test[['hsa-let-7d']])
+PlotMrdCompare(toot, test[['hsa-let-7d']])
+CompareIDs(toot, test[['hsa-let-7d']])
