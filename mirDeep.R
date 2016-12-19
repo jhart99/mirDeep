@@ -292,3 +292,145 @@ ParseMirbaseDetail <- function(detailrecord) {
        mismatched.reads=mismatched.reads, 
        mirna.matches=mirna.matches)
 }
+
+ComputeNucleotideVariations <- function(mrd.rec) {
+  library(foreach)
+  library(iterators)
+  library(plyr)
+  primary.seq <- unlist(strsplit(mrd.rec$pri_seq, ""))
+  if(is.null(mrd.rec$alignments)) {
+    return(mrd.rec)
+  }
+  mod.table <- primary.seq == t(mrd.rec$alignments) # modified bases are False
+  mod.table <- mod.table | t(mrd.rec$alignments == ".") # ignore bases not in the sequence
+  mod.indexes <- which(!(mod.table | t(mrd.rec$alignments == ".")), arr.ind = T)
+  mod.indexes <- data.frame(mod.indexes)
+  out.table <- foreach(idx=iter(mod.indexes, by="row"), .combine=rbind) %do% {
+    nucleotide <- mrd.rec$alignments[idx$col, idx$row]
+    pos <- idx$row
+    count <- mrd.rec$depth[idx$col]
+    data.frame(pos=pos, nucleotide=nucleotide, count=count)
+  }
+  # each length polymorphism results in a different line so we can collapse these
+  out.table <- ddply(out.table, .(pos, nucleotide), .fun=function(x) { data.frame(count=sum(x$count))})
+  mrd.rec$snv <- out.table
+  mrd.rec
+}
+ComputeLengthVariations <- function(mrd.rec) {
+  library(foreach)
+  library(iterators)
+  library(plyr)
+  primary.seq <- unlist(strsplit(mrd.rec$pri_seq, ""))
+  if(is.null(mrd.rec$alignments)) {
+    return(mrd.rec)
+  }
+  model <- unlist(strsplit(mrd.rec$exp, ""))
+  
+  # These models mark the positions of canonical 5 and 3 miRNA pieces.  M is for the other miRNAs
+  model5 <- model == "5"
+  model3 <- model == "3"
+  modelM <- model == "M"
+
+  # var.matrix has the positions which are not in the sequences
+  var.matrix <- t(mrd.rec$alignments == ".")
+  # xor here will give us a false if there are alignments outside of the
+  # canonical sequence OR alignments which lack bases in the canonical.
+  # these var matrixes 
+  var5 <- xor(model5, var.matrix)
+  var3 <- xor(model3, var.matrix)
+  varM <- xor(modelM, var.matrix)
+  
+  # summary of lengths
+  lengths <- data.frame(length=rowSums(!t(var.matrix)), count=mrd.rec$depth)
+  lengths <- ddply(lengths, .(length), .fun=function(x) { data.frame(count=sum(x$count))})
+  
+  mrd.rec$lengths <- lengths
+  
+  # bin reads into 5 or 3
+  if (!is.null(model5)) test5 <- colSums(!var5)
+  if (!is.null(model3)) test3 <- colSums(!var3)
+  if (!is.null(modelM)) testM <- colSums(!varM)
+  bin5 <- test5 < test3
+  bin3 <- test3 < test5
+  binM <- (testM <= test5) & (testM <= test3)
+  
+  depth5 <- (!var5) %*% matrix(mrd.rec$depth * bin5, ncol=1)
+  depth3 <- (!var3) %*% matrix(mrd.rec$depth * bin3, ncol=1)
+  depthM <- (!varM) %*% matrix(mrd.rec$depth * binM, ncol=1)
+  
+
+  mrd.rec$length.poly.5 <- as.vector(depth5)
+  mrd.rec$length.poly.3 <- as.vector(depth3)
+  mrd.rec$length.poly.M <- as.vector(depthM)
+  #if we have no 5p or 3p pieces the following will give a warning.  The results
+  #are fine so we don't need to worry about these.
+  suppressWarnings(mrd.rec$range.5p <- range(which(model5)))
+  suppressWarnings(mrd.rec$range.3p <- range(which(model3)))
+  suppressWarnings(mrd.rec$range.M <- range(which(modelM)))
+  mrd.rec
+}
+PlotNucleotideVariants <- function(mrd) {
+  plot.data <- mrd$snv
+  if(is.finite(sum(mrd$range.3p)) & is.finite(sum(mrd$range.5p))) {
+    cutoff <- (mrd$range.3p[1] + mrd$range.5p[2])/2
+    plot.data$plot <- ifelse(plot.data$pos < cutoff, "5p", "3p")
+    plot.data$pos.corrected <- ifelse(plot.data$pos < cutoff, plot.data$pos-mrd$range.5p[1], plot.data$pos-mrd$range.3p[1])
+    plot.data$AF <- plot.data$count/mrd$total.depth[plot.data$pos]
+  } else {
+    if (is.finite(sum(mrd$range.3p))) {
+      plot.data$plot <- "3p"
+      range <- mrd$range.3p
+    } else if (is.finite(sum(mrd$range.5p))) {
+      plot.data$plot <- "5p"
+      range <- mrd$range.5p
+    } else if (is.finite(sum(mrd$range.M))) {
+      plot.data$plot <- "M"
+      range <- mrd$range.M
+    } else {
+      stop("no data in range to plot")
+    }
+    plot.data$pos.corrected <- plot.data$pos-range[1]
+    plot.data$AF <- plot.data$count/mrd$total.depth[plot.data$pos]
+  }
+  ggplot(plot.data, aes(pos.corrected, count, fill=nucleotide)) + geom_bar(stat="identity") + facet_wrap(~plot, ncol=1)
+}
+PlotLengthDistribution <- function(mrd) {
+  ggplot(mrd$lengths, aes(factor(length), count)) + geom_bar(stat="identity")
+}
+PlotLengthPolymorphisms <- function(mrd) {
+  library(reshape2)
+  if(is.finite(sum(mrd$range.3p)) & is.finite(sum(mrd$range.5p))) {
+    cutoff <- (mrd$range.3p[1] + mrd$range.5p[2])/2
+    plot.data <- data.frame(pos=1:length(mrd$length.poly.5), poly.5=mrd$length.poly.5, poly.3=mrd$length.poly.3)
+    plot.data <- melt(plot.data, "pos")
+    suppressWarnings(plot.data$cat <- factor(cut(plot.data$pos, c(-Inf, mrd$range.5p[1]-0.5, mean(mrd$range.5p), mrd$range.5p[2]-0.5, 
+                                          cutoff,
+                                          mrd$range.3p[1]-0.5, mean(mrd$range.3p), mrd$range.3p[2]-0.5, Inf), 
+                         #c("55e", "55r", "53r", "53e", "35e", "35r", "33r", "33e")
+                         c("5' extension", "5' retraction", "3' retraction", "3' extension",
+                           "5' extension", "5' retraction", "3' retraction", "3' extension")
+                         )))
+    plot.data$pos <- ifelse(plot.data$pos < cutoff, plot.data$pos-mrd$range.5p[1], plot.data$pos-mrd$range.3p[1])
+    plot.data <- plot.data[plot.data$value > 0, ]
+    plot.data$pos <- ifelse(plot.data$cat %in% c("5' retraction", "3' extension"), plot.data$pos + 1, plot.data$pos)
+    ggplot(plot.data, aes(pos, value, fill=cat)) + geom_bar(stat="identity") + facet_wrap(~variable, ncol=1, scales="free_y")
+  } else {
+    plot.data <- data.frame(pos=1:length(mrd$length.poly.5), poly.5=mrd$length.poly.5, poly.3=mrd$length.poly.3, poly.M=mrd$length.poly.M)
+    if (is.finite(sum(mrd$range.3p))) {
+      range <- mrd$range.3p
+    } else if (is.finite(sum(mrd$range.5p))) {
+      range <- mrd$range.5p
+    } else if (is.finite(sum(mrd$range.M))) {
+      range <- mrd$range.M
+    } else {
+      stop("no data in range to plot")
+    }
+    plot.data <- melt(plot.data, "pos")
+    plot.data$cat <- factor(cut(plot.data$pos, c(-Inf, range[1]-0.5, mean(range), range[2]-0.5, Inf), 
+                                                 c("5' extension", "5' retraction", "3' retraction", "3' extension")))
+    plot.data$pos <- plot.data$pos-range[1]
+    plot.data$pos <- ifelse(plot.data$cat %in% c("5' retraction", "3' extension"), plot.data$pos + 1, plot.data$pos)
+    plot.data <- plot.data[plot.data$value > 0, ]
+  }
+  ggplot(plot.data, aes(pos, value, fill=cat)) + geom_bar(stat="identity") + facet_wrap(~variable, ncol=1, scales="free_y")
+}

@@ -21,8 +21,18 @@ toot <- loadMirBaseHTML("miRNA Search Results.html")
 PlotMrd(toot)
 # or you can just copy and paste the URL
 library(RCurl)
-toot <- loadMirBaseHTML("http://www.mirbase.org/cgi-bin/get_read.pl?acc=MI0000065")
+toot <- loadMirBaseHTML("http://www.mirbase.org/cgi-bin/get_read.pl?acc=MI0000071")
 PlotMrd(toot)
-PlotMrd(test[['hsa-let-7d']])
-PlotMrdCompare(toot, test[['hsa-let-7d']])
-CompareIDs(toot, test[['hsa-let-7d']])
+PlotMrd(test[['hsa-mir-17']])
+PlotMrdCompare(toot, test[['hsa-mir-17']])
+CompareIDs(toot, test[['hsa-mir-17']])
+
+
+# modification routines
+# by sequence
+mod.test <- ComputeNucleotideVariations(test[['hsa-let-7c']])
+mod.test <- ComputeLengthVariations(mod.test)
+
+PlotNucleotideVariants(mod.test)
+PlotLengthDistribution(mod.test)
+PlotLengthPolymorphisms(mod.test)
